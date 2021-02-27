@@ -2,7 +2,7 @@ package text
 
 import "testing"
 
-func TestFilterPuncChar(t *testing.T) {
+func TestPuncFilter(t *testing.T) {
 	var data = []struct {
 		input string
 		want  string
@@ -23,7 +23,7 @@ func TestFilterPuncChar(t *testing.T) {
 	for _, tc := range data {
 		name := tc.input
 		t.Run(name, func(t *testing.T) {
-			res := FilterPuncChar(tc.input)
+			res := PuncFilter(tc.input)
 			if res != tc.want {
 				t.Errorf("got %s, want %s", res, tc.want)
 			}
@@ -31,20 +31,20 @@ func TestFilterPuncChar(t *testing.T) {
 	}
 }
 
-func benchmarFilterPuncChar(input string, b *testing.B) {
+func benchmarPuncFilter(input string, b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		FilterPuncChar(input)
+		PuncFilter(input)
 	}
 }
 
-func BenchmarkFilterPuncChar1(b *testing.B) {
-	benchmarFilterPuncChar("Jane and Jack went to the market.", b)
+func BenchmarkPuncFilter1(b *testing.B) {
+	benchmarPuncFilter("Jane and Jack went to the market.", b)
 }
 
-func BenchmarkFilterPuncChar2(b *testing.B) {
-	benchmarFilterPuncChar("John was hurt; he knew she only said it to upset him.", b)
+func BenchmarkPuncFilter2(b *testing.B) {
+	benchmarPuncFilter("John was hurt; he knew she only said it to upset him.", b)
 }
 
-func BenchmarkFilterPuncChar3(b *testing.B) {
-	benchmarFilterPuncChar("John and Jane (who were actually half brother and sister) both have red hair.", b)
+func BenchmarkPuncFilter3(b *testing.B) {
+	benchmarPuncFilter("John and Jane (who were actually half brother and sister) both have red hair.", b)
 }

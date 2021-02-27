@@ -2,8 +2,8 @@ package text
 
 import "strings"
 
-// FilterPuncChar filters punctuations
-func FilterPuncChar(input string) string {
+// PuncFilter filters punctuations
+func PuncFilter(input string) string {
 	var b strings.Builder
 	for _, c := range input {
 		switch c {
