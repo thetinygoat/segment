@@ -18,6 +18,7 @@ func TestWhitespaceTokenizer(t *testing.T) {
 		{"I didnt have time to get changed I was already late", []string{"I", "didnt", "have", "time", "to", "get", "changed", "I", "was", "already", "late"}},
 		{"She gave him her answer  No", []string{"She", "gave", "him", "her", "answer", "No"}},
 		{"               ", []string{}},
+		{"Jane and Jack went to the market on Nov ", []string{"Jane", "and", "Jack", "went", "to", "the", "market", "on", "Nov"}},
 	}
 
 	for _, tc := range data {
