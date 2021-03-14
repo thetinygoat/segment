@@ -47,10 +47,9 @@ func TestPunctuation(t *testing.T) {
 			[]string{"he", "gave", "him", "her", "answer", "No"},
 		},
 	}
-
+	f := NewEnglishFilter()
 	for n, test := range tests {
 		testName := fmt.Sprintf("punctuation filter test %d", n+1)
-		f := NewEnglishFilter()
 		t.Run(testName, func(t *testing.T) {
 			cleaned := f.Punctuation(test.input)
 			if len(cleaned) != len(test.want) {
@@ -136,7 +135,7 @@ func TestStopwords(t *testing.T) {
 		},
 		{
 			[]string{"do", "n't", "go", "outside", "she", "said"},
-			[]string{"n't",
+			[]string{
 				"go",
 				"outside",
 				"said"},
@@ -146,6 +145,50 @@ func TestStopwords(t *testing.T) {
 			[]string{"gave",
 				"answer",
 				"No"},
+		},
+		{
+			[]string{"he", "'s", "not", "coming", "with", "us"},
+			[]string{"coming",
+				"us",
+			},
+		},
+		{
+			[]string{"i’ve", "decided", "to", "go", "to", "the", "party", "after", "all"},
+			[]string{"i’ve",
+				"decided",
+				"go",
+				"party",
+			},
+		},
+		{
+			[]string{"it", "'s", "his", "birthday", "and", "he", "has", "other", "plans"},
+			[]string{"birthday",
+				"plans",
+			},
+		},
+		{
+			[]string{"they've", "thought", "about", "going", "to", "the", "movies"},
+			[]string{"they've",
+				"thought",
+				"going",
+				"movies",
+			},
+		},
+		{
+			[]string{"are", "n't", "you", "Caroline", "'s", "friend"},
+			[]string{
+				"Caroline",
+				"friend",
+			},
+		},
+		{
+			[]string{"it", "looked", "as", "if", "she'd", "already", "made", "up", "her", "mind"},
+			[]string{"looked",
+				"she'd",
+				"already",
+				"made",
+				"mind",
+			},
 		},
 	}
 

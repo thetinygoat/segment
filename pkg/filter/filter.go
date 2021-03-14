@@ -187,6 +187,11 @@ func NewEnglishFilter() *EnglishFilter {
 	stopwords["why"] = true
 	stopwords["during"] = true
 	stopwords["were"] = true
+	stopwords["'ll"] = true
+	stopwords["'s"] = true
+	stopwords["'re"] = true
+	stopwords["'m"] = true
+	stopwords["n't"] = true
 	englishFilter.stopwords = stopwords
 
 	return englishFilter
