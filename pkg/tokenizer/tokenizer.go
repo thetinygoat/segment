@@ -10,7 +10,7 @@ func NewEnglishTokenizer() *EnglishTokenizer {
 }
 
 func (e *EnglishTokenizer) Tokenize(input string) ([]string, error) {
-	doc, err := prose.NewDocument(input)
+	doc, err := prose.NewDocument(input, prose.WithExtraction(false), prose.WithTagging(false), prose.WithSegmentation(false))
 	if err != nil {
 		return nil, err
 	}
