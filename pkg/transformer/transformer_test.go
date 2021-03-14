@@ -49,7 +49,7 @@ func TestLowercase(t *testing.T) {
 	}
 	tf := NewEnglishTransformer()
 	for n, test := range tests {
-		testName := fmt.Sprintf("punctuation filter test %d", n+1)
+		testName := fmt.Sprintf("lowercase transformer test %d", n+1)
 
 		t.Run(testName, func(t *testing.T) {
 			cleaned := tf.Lowercase(test.input)
