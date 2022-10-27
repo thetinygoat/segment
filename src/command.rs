@@ -113,17 +113,37 @@ impl Parser {
     pub fn has_remaining(&mut self) -> bool {
         self.tokens.peek().is_some()
     }
+
+    pub fn next_as_string(&mut self) -> Result<Option<String>, ParseCommandError> {
+        let frame = match self.next() {
+            Some(frame) => frame,
+            None => return Ok(None),
+        };
+
+        match frame {
+            Frame::String(data) => Ok(Some(str::from_utf8(&data[..])?.to_string())),
+            _ => Err(ParseCommandError::InvalidFormat),
+        }
+    }
+
+    pub fn next_as_bytes(&mut self) -> Result<Option<Bytes>, ParseCommandError> {
+        let frame = match self.next() {
+            Some(frame) => frame,
+            None => return Ok(None),
+        };
+
+        match frame {
+            Frame::String(data) => Ok(Some(data)),
+            _ => Err(ParseCommandError::InvalidFormat),
+        }
+    }
 }
 
 impl Create {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?;
 
         let mut command = Create {
             keyspace,
@@ -135,86 +155,32 @@ impl Create {
             return Ok(command);
         };
 
-        let evictor = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
-        {
-            Frame::Map(map) => Self::parse_args(map)?,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
-
-        command.evictor = evictor;
-
-        if !parser.has_remaining() {
-            return Ok(command);
-        }
-
-        let if_not_exists = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
-        {
-            Frame::Array(array) => Self::parse_flags(array)?,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
-
-        command.if_not_exists = if_not_exists;
-
-        if parser.has_remaining() {
-            return Err(ParseCommandError::WrongArgCount("create".to_string()));
-        }
-
-        Ok(command)
-    }
-
-    fn parse_args(args: Vec<Frame>) -> Result<Evictor, ParseCommandError> {
-        let mut idx = 0;
-        let mut evictor = Evictor::Nop;
-        while idx < args.len() {
-            let key = match &args[idx] {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
-            idx += 1;
-            let value = match &args[idx] {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
-            idx += 1;
+        while parser.has_remaining() {
+            let key = parser
+                .next_as_string()?
+                .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
+                .to_lowercase();
 
             if matches!(key.as_str(), "evictor") {
-                if matches!(value.as_str(), "nop" | "random" | "lru") {
-                    match value.as_str() {
-                        "nop" => evictor = Evictor::Nop,
-                        "random" => evictor = Evictor::Random,
-                        "lru" => evictor = Evictor::Lru,
-                        _ => unreachable!(),
+                let value = parser
+                    .next_as_string()?
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
+                    .to_lowercase();
+                match value.as_str() {
+                    "nop" => command.evictor = Evictor::Nop,
+                    "random" => command.evictor = Evictor::Random,
+                    "lru" => command.evictor = Evictor::Lru,
+                    _ => {
+                        return Err(ParseCommandError::InvalidArgValue(
+                            value,
+                            key,
+                            "create".to_string(),
+                        ))
                     }
-                } else {
-                    return Err(ParseCommandError::InvalidArgValue(
-                        value,
-                        key,
-                        "create".to_string(),
-                    ));
                 }
-            } else {
-                return Err(ParseCommandError::InvalidArg(key, "create".to_string()));
-            }
-        }
-
-        Ok(evictor)
-    }
-
-    fn parse_flags(flags: Vec<Frame>) -> Result<bool, ParseCommandError> {
-        let mut if_not_exists = false;
-
-        for flag in flags {
-            let key = match &flag {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
-            if matches!(key.as_str(), "if_not_exists") {
-                if !if_not_exists {
-                    if_not_exists = true
+            } else if matches!(key.as_str(), "if_not_exists") {
+                if !command.if_not_exists {
+                    command.if_not_exists = true
                 } else {
                     return Err(ParseCommandError::InvalidFormat);
                 }
@@ -223,7 +189,7 @@ impl Create {
             }
         }
 
-        Ok(if_not_exists)
+        Ok(command)
     }
 
     pub fn keyspace(&self) -> Bytes {
@@ -239,29 +205,17 @@ impl Create {
 
 impl Set {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
 
-        let key = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let key = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
 
-        let value = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let value = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
 
         let mut command = Set {
             keyspace,
@@ -276,126 +230,59 @@ impl Set {
             return Ok(command);
         }
 
-        let (expire_at, expire_after) = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
-        {
-            Frame::Map(map) => Self::parse_args(map)?,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        while parser.has_remaining() {
+            let key = parser
+                .next_as_string()?
+                .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
+                .to_lowercase();
 
-        if expire_at.is_some() && expire_after.is_some() {
-            return Err(ParseCommandError::InvalidFormat);
-        }
+            if matches!(key.as_str(), "expire_at") {
+                let value = parser
+                    .next_as_string()?
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
+                let timestamp = value.parse::<u64>().map_err(|_| {
+                    ParseCommandError::InvalidArgValue(value, key, "set".to_string())
+                })?;
+                match command.expire_at {
+                    Some(_) => return Err(ParseCommandError::InvalidFormat),
+                    None => command.expire_at = Some(timestamp),
+                }
+            } else if matches!(key.as_str(), "expire_after") {
+                let value = parser
+                    .next_as_string()?
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
 
-        if expire_at.is_some() {
-            command.expire_at = expire_at;
-        } else if let Some(duration) = expire_after {
-            command.expire_at = Some(
-                SystemTime::now()
-                    .add(Duration::from_millis(duration))
+                let millis = value.parse::<u64>().map_err(|_| {
+                    ParseCommandError::InvalidArgValue(value, key, "set".to_string())
+                })?;
+
+                let timestamp = SystemTime::now()
+                    .add(Duration::from_millis(millis))
                     .duration_since(UNIX_EPOCH)?
-                    .as_secs(),
-            );
-        }
+                    .as_secs();
 
-        if !parser.has_remaining() {
-            return Ok(command);
-        }
-
-        let (if_exists, if_not_exists) = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
-        {
-            Frame::Array(array) => Self::parse_flags(array)?,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
-
-        if if_exists && if_not_exists {
-            return Err(ParseCommandError::InvalidFormat);
-        }
-
-        if if_exists {
-            command.if_exists = if_exists
-        } else if if_not_exists {
-            command.if_not_exists = if_not_exists
-        }
-
-        if parser.has_remaining() {
-            return Err(ParseCommandError::WrongArgCount("set".to_string()));
+                match command.expire_at {
+                    Some(_) => return Err(ParseCommandError::InvalidFormat),
+                    None => command.expire_at = Some(timestamp),
+                }
+            } else if matches!(key.as_str(), "if_not_exists") {
+                if !command.if_not_exists && !command.if_exists {
+                    command.if_not_exists = true
+                } else {
+                    return Err(ParseCommandError::InvalidFormat);
+                }
+            } else if matches!(key.as_str(), "if_exists") {
+                if !command.if_not_exists && !command.if_exists {
+                    command.if_exists = true
+                } else {
+                    return Err(ParseCommandError::InvalidFormat);
+                }
+            } else {
+                return Err(ParseCommandError::InvalidArg(key, "set".to_string()));
+            }
         }
 
         Ok(command)
-    }
-
-    fn parse_args(args: Vec<Frame>) -> Result<(Option<u64>, Option<u64>), ParseCommandError> {
-        let mut idx = 0;
-        let mut expire_at: Option<u64> = None;
-        let mut expire_after: Option<u64> = None;
-        while idx < args.len() {
-            let key = match &args[idx] {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
-            idx += 1;
-            let value = match &args[idx] {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
-            idx += 1;
-
-            if matches!(key.as_str(), "expire_at") {
-                if expire_at.is_none() {
-                    expire_at = Some(value.parse::<u64>().map_err(|_| {
-                        ParseCommandError::InvalidArgValue(value, key, "set".to_string())
-                    })?);
-                } else {
-                    return Err(ParseCommandError::InvalidFormat);
-                }
-            } else if matches!(key.as_str(), "expire_after") {
-                if expire_after.is_none() {
-                    expire_after = Some(value.parse::<u64>().map_err(|_| {
-                        ParseCommandError::InvalidArgValue(value, key, "set".to_string())
-                    })?);
-                } else {
-                    return Err(ParseCommandError::InvalidFormat);
-                }
-            } else {
-                return Err(ParseCommandError::InvalidArg(key, "set".to_string()));
-            }
-        }
-
-        Ok((expire_at, expire_after))
-    }
-
-    fn parse_flags(flags: Vec<Frame>) -> Result<(bool, bool), ParseCommandError> {
-        let mut if_exists = false;
-        let mut if_not_exists = false;
-
-        for flag in flags {
-            let key = match &flag {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
-
-            if matches!(key.as_str(), "if_exists") {
-                if !if_exists {
-                    if_exists = true
-                } else {
-                    return Err(ParseCommandError::InvalidFormat);
-                }
-            } else if matches!(key.as_str(), "if_not_exists") {
-                if !if_not_exists {
-                    if_not_exists = true
-                } else {
-                    return Err(ParseCommandError::InvalidFormat);
-                }
-            } else {
-                return Err(ParseCommandError::InvalidArg(key, "set".to_string()));
-            }
-        }
-
-        Ok((if_exists, if_not_exists))
     }
 
     pub fn expire_at(&self) -> Option<u64> {
@@ -425,21 +312,14 @@ impl Set {
 
 impl Get {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("get".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("get".to_string()))?;
 
-        let key = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("get".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let key = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("get".to_string()))?;
+
         let command = Get { keyspace, key };
 
         if parser.has_remaining() {
@@ -460,21 +340,14 @@ impl Get {
 
 impl Del {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("del".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("del".to_string()))?;
 
-        let key = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("del".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let key = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("del".to_string()))?;
+
         let command = Del { keyspace, key };
 
         if parser.has_remaining() {
@@ -495,13 +368,9 @@ impl Del {
 
 impl Drop {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("drop".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("drop".to_string()))?;
 
         let mut command = Drop {
             keyspace,
@@ -512,43 +381,24 @@ impl Drop {
             return Ok(command);
         }
 
-        let if_exists = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("drop".to_string()))?
-        {
-            Frame::Array(array) => Self::parse_flags(array)?,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        while parser.has_remaining() {
+            let key = parser
+                .next_as_string()?
+                .ok_or_else(|| ParseCommandError::WrongArgCount("drop".to_string()))?
+                .to_lowercase();
 
-        command.if_exists = if_exists;
-
-        if parser.has_remaining() {
-            return Err(ParseCommandError::WrongArgCount("drop".to_string()));
-        }
-
-        Ok(command)
-    }
-
-    fn parse_flags(flags: Vec<Frame>) -> Result<bool, ParseCommandError> {
-        let mut if_exists = false;
-
-        for flag in flags {
-            let key = match &flag {
-                Frame::String(data) => str::from_utf8(&data[..])?.to_lowercase(),
-                _ => return Err(ParseCommandError::InvalidFormat),
-            };
             if matches!(key.as_str(), "if_exists") {
-                if !if_exists {
-                    if_exists = true
+                if !command.if_exists {
+                    command.if_exists = true
                 } else {
                     return Err(ParseCommandError::InvalidFormat);
                 }
             } else {
-                return Err(ParseCommandError::InvalidArg(key, "create".to_string()));
+                return Err(ParseCommandError::InvalidArg(key, "drop".to_string()));
             }
         }
 
-        Ok(if_exists)
+        Ok(command)
     }
 
     pub fn keyspace(&self) -> Bytes {
@@ -562,13 +412,9 @@ impl Drop {
 
 impl Count {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("count".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("count".to_string()))?;
 
         let command = Count { keyspace };
 
@@ -586,21 +432,14 @@ impl Count {
 
 impl Ttl {
     fn parse(parser: &mut Parser) -> Result<Self, ParseCommandError> {
-        let keyspace = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("ttl".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let keyspace = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("ttl".to_string()))?;
 
-        let key = match parser
-            .next()
-            .ok_or_else(|| ParseCommandError::WrongArgCount("ttl".to_string()))?
-        {
-            Frame::String(data) => data,
-            _ => return Err(ParseCommandError::InvalidFormat),
-        };
+        let key = parser
+            .next_as_bytes()?
+            .ok_or_else(|| ParseCommandError::WrongArgCount("ttl".to_string()))?;
+
         let command = Ttl { keyspace, key };
 
         if parser.has_remaining() {

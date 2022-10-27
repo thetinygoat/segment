@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::signal;
 use tokio::sync::broadcast;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 struct Server {
     ln: TcpListener,
@@ -33,7 +33,7 @@ impl Server {
     pub fn new(ln: TcpListener, cfg: ServerConfig) -> Self {
         let wg = WaitGroup::new();
         let (done_tx, _) = broadcast::channel(1);
-        let db = Db::new(done_tx.subscribe(), wg.clone());
+        let db = Db::new(done_tx.subscribe(), wg.clone(), cfg.max_memory());
         Server {
             ln,
             cfg,
@@ -89,6 +89,7 @@ impl ConnectionHandler {
     }
 
     pub async fn handle(&mut self) -> Result<()> {
+        debug!("new connection started");
         loop {
             let maybe_frame = tokio::select! {
                 _ = self.done.recv() => {
@@ -129,7 +130,6 @@ impl ConnectionHandler {
                 None => continue,
             }
         }
-
         Ok(())
     }
 }

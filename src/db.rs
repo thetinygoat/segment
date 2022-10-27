@@ -5,14 +5,25 @@ use crate::{
 };
 use bytes::Bytes;
 use crossbeam::sync::WaitGroup;
+use libproc::libproc::pid_rusage::{pidrusage, RUsageInfoV2};
 use parking_lot::{Mutex, RwLock};
-use std::time::{Instant, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::process;
 use std::{
     collections::HashMap,
     str::{self, Utf8Error},
+    time::Duration,
+};
+use std::{
+    sync::Arc,
+    time::{Instant, SystemTime, SystemTimeError, UNIX_EPOCH},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
+use tokio::time;
+use tracing::{debug, error};
+
+static EXPRING_EVICTOR_SAMPLE_SIZE: u8 = 5;
+static MAX_MEMORY_EVICTOR_SAMPLE_SIZE: u8 = 3;
 
 #[derive(Debug)]
 pub struct Value {
@@ -21,7 +32,7 @@ pub struct Value {
     expire_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Evictor {
     Nop,
     Random,
@@ -30,9 +41,12 @@ pub enum Evictor {
 
 #[derive(Debug)]
 pub struct Keyspace {
-    store: Mutex<HashMap<Bytes, Value>>,
-    expiring: Mutex<HashMap<Bytes, u64>>,
+    store: Arc<Mutex<HashMap<Bytes, Value>>>,
+    expiring: Arc<Mutex<HashMap<Bytes, u64>>>,
     evictor: Evictor,
+    wg: WaitGroup,
+    done: broadcast::Receiver<()>,
+    server_max_memory: u64,
 }
 
 #[derive(Debug)]
@@ -40,6 +54,7 @@ pub struct Db {
     keyspaces: RwLock<HashMap<Bytes, Keyspace>>,
     done: broadcast::Receiver<()>,
     wg: WaitGroup,
+    server_max_memory: u64,
 }
 
 #[derive(Debug, Error)]
@@ -61,17 +76,18 @@ pub enum ExecuteCommandError {
 }
 
 impl Db {
-    pub fn new(done: broadcast::Receiver<()>, wg: WaitGroup) -> Self {
+    pub fn new(done: broadcast::Receiver<()>, wg: WaitGroup, server_max_memory: u64) -> Self {
         Db {
             keyspaces: RwLock::new(HashMap::new()),
             done,
             wg,
+            server_max_memory,
         }
     }
 
     pub async fn execute(&self, command: Command) -> Result<Frame, ExecuteCommandError> {
         match command {
-            Command::Create(cmd) => self.exec_create(&cmd),
+            Command::Create(cmd) => self.exec_create(&cmd).await,
             Command::Drop(cmd) => self.exec_drop(&cmd),
             Command::Keyspaces => self.exec_keyspaces(),
             Command::Set(cmd) => self.exec_set(&cmd),
@@ -83,7 +99,7 @@ impl Db {
         }
     }
 
-    fn exec_create(&self, cmd: &Create) -> Result<Frame, ExecuteCommandError> {
+    async fn exec_create(&self, cmd: &Create) -> Result<Frame, ExecuteCommandError> {
         let mut handle = self.keyspaces.write();
         if handle.contains_key(&cmd.keyspace()) {
             if cmd.if_not_exists() {
@@ -95,7 +111,19 @@ impl Db {
             }
         }
 
-        handle.insert(cmd.keyspace(), Keyspace::new(cmd.evictor()));
+        let ks = Keyspace::new(
+            self.done.resubscribe(),
+            self.wg.clone(),
+            cmd.evictor(),
+            self.server_max_memory,
+        );
+        ks.start_expiring_evictor();
+
+        if self.server_max_memory > 0 {
+            ks.start_max_memory_evictor();
+        }
+
+        handle.insert(cmd.keyspace(), ks);
 
         Ok(Frame::Boolean(true))
     }
@@ -194,11 +222,19 @@ impl Db {
 }
 
 impl Keyspace {
-    pub fn new(evictor: Evictor) -> Self {
+    pub fn new(
+        done: broadcast::Receiver<()>,
+        wg: WaitGroup,
+        evictor: Evictor,
+        server_max_memory: u64,
+    ) -> Self {
         Keyspace {
-            store: Mutex::new(HashMap::new()),
-            expiring: Mutex::new(HashMap::new()),
+            store: Arc::new(Mutex::new(HashMap::new())),
+            expiring: Arc::new(Mutex::new(HashMap::new())),
             evictor,
+            done,
+            wg,
+            server_max_memory,
         }
     }
     pub fn set_if_not_exists(
@@ -212,6 +248,7 @@ impl Keyspace {
         if val.is_some() {
             return Ok(Frame::Boolean(false));
         }
+        drop(handle);
         self.set(key, value, expire_at)
     }
 
@@ -226,6 +263,7 @@ impl Keyspace {
         if val.is_none() {
             return Ok(Frame::Boolean(false));
         }
+        drop(handle);
         self.set(key, value, expire_at)
     }
 
@@ -279,16 +317,138 @@ impl Keyspace {
             val.touch();
             if let Some(expiry) = val.expire_at() {
                 let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-                if expiry < current_time {
+                if expiry <= current_time {
                     handle.remove(&key);
                     return Ok(Frame::Null);
                 } else {
                     return Ok(Frame::Integer(((expiry - current_time) * 1000) as i64));
                 }
             }
-            return Ok(Frame::String(val.data()));
+            return Ok(Frame::Null);
         }
         Ok(Frame::Null)
+    }
+    fn start_expiring_evictor(&self) {
+        let mut done = self.done.resubscribe();
+        let wg = self.wg.clone();
+        let expiring = self.expiring.clone();
+        let store = self.store.clone();
+        tokio::spawn(async move {
+            debug!("expiring evictor started");
+            loop {
+                tokio::select! {
+                    _ = done.recv() => {
+                        drop(wg);
+                        debug!("shutting down expiring evictor");
+                        break;
+                    }
+                    _ = time::sleep(Duration::from_millis(500)) => {
+                        let mut expring_handle = expiring.lock();
+                        let mut store_handle = store.lock();
+                        let mut expired_keys = Vec::with_capacity(5);
+
+                        for (idx, (key, expiry)) in expring_handle.iter().enumerate() {
+                            if idx >= EXPRING_EVICTOR_SAMPLE_SIZE as usize {
+                                break;
+                            }
+
+                            let current_time = match SystemTime::now().duration_since(UNIX_EPOCH) {
+                                Ok(time) => time.as_secs(),
+                                Err(e) => {
+                                    error!("{}", e);
+                                    break;
+                                }
+                            };
+                            if *expiry <= current_time {
+                                expired_keys.push(key.clone());
+                                store_handle.remove(key);
+                            }
+                        }
+
+                        for key in expired_keys {
+                            expring_handle.remove(&key);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn start_max_memory_evictor(&self) {
+        if self.evictor == Evictor::Nop {
+            return;
+        }
+        let mut done = self.done.resubscribe();
+        let wg = self.wg.clone();
+        let store = self.store.clone();
+        let evictor = self.evictor;
+        let server_max_memory = self.server_max_memory;
+        tokio::spawn(async move {
+            debug!("max memory evictor started");
+            loop {
+                tokio::select! {
+                    _ = done.recv() => {
+                        drop(wg);
+                        debug!("shutting down max memory evictor");
+                        break;
+                    }
+                    _ = time::sleep(Duration::from_millis(1000)) => {
+                        let memory_usage = match pidrusage::<RUsageInfoV2>(process::id() as i32) {
+                            Ok(rusage) => rusage.ri_resident_size,
+                            Err(e) => {
+                                error!("{}", e);
+                                break;
+                            }
+                        };
+
+                        if memory_usage < server_max_memory {
+                            continue;
+                        }
+
+                        match evictor {
+                            Evictor::Lru => {
+                                let mut handle = store.lock();
+                                let mut lru = Instant::now();
+                                let mut to_evict: Option<Bytes> = None;
+                                for (idx, (key, value)) in handle.iter().enumerate() {
+                                    if idx >= MAX_MEMORY_EVICTOR_SAMPLE_SIZE as usize {
+                                        break;
+                                    }
+
+                                    let last_accessed = value.last_accessed();
+
+                                    if last_accessed < lru {
+                                        lru = last_accessed;
+                                        to_evict = Some(key.clone());
+                                    }
+                                }
+
+                                if let Some(key) = to_evict {
+                                    debug!("key '{:?}' evicted using lru policy", key);
+                                    handle.remove(&key);
+                                }
+                            },
+                            Evictor::Random => {
+                                let mut handle = store.lock();
+                                let mut to_evict: Option<Bytes> = None;
+                                for (idx, key) in handle.keys().enumerate() {
+                                    if idx >= MAX_MEMORY_EVICTOR_SAMPLE_SIZE as usize {
+                                        break;
+                                    }
+                                    to_evict = Some(key.clone());
+                                }
+
+                                if let Some(key) = to_evict {
+                                    debug!("key '{:?}' evicted using random policy", key);
+                                    handle.remove(&key);
+                                }
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -311,5 +471,9 @@ impl Value {
 
     pub fn expire_at(&self) -> Option<u64> {
         self.expire_at
+    }
+
+    pub fn last_accessed(&self) -> Instant {
+        self.last_accessed
     }
 }
