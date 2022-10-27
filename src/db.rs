@@ -22,7 +22,7 @@ use tokio::sync::broadcast;
 use tokio::time;
 use tracing::{debug, error};
 
-static EXPRING_EVICTOR_SAMPLE_SIZE: u8 = 5;
+static EXPIRING_EVICTOR_SAMPLE_SIZE: u8 = 5;
 static MAX_MEMORY_EVICTOR_SAMPLE_SIZE: u8 = 3;
 
 #[derive(Debug)]
@@ -348,7 +348,7 @@ impl Keyspace {
                         let mut expired_keys = Vec::with_capacity(5);
 
                         for (idx, (key, expiry)) in expring_handle.iter().enumerate() {
-                            if idx >= EXPRING_EVICTOR_SAMPLE_SIZE as usize {
+                            if idx >= EXPIRING_EVICTOR_SAMPLE_SIZE as usize {
                                 break;
                             }
 
