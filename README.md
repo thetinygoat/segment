@@ -281,7 +281,7 @@ KEYSPACES
 ### Client Libraries and Utilities
 Currenly there is a [Rust client](https://github.com/segment-dev/segment-rs) in very early stages. It is usable and works well, but not does not have a good DX and is missing several imporant features.
 
-There is also a repo that aims to provide a collection of utilities for the Segment server like a CLI, a banchmarking tool etc. Currently it only contains a CLI which works well and can be used to play around with the server.
+There is also a [repo](https://github.com/segment-dev/segment-utils) that aims to provide a collection of utilities for the Segment server like a CLI, a banchmarking tool etc. Currently it only contains a CLI which works well and can be used to play around with the server.
 
 ### Roadmap
 The near term roadmap for Segment is to have tests in place (both unit and integration) so that it can be made produciton ready.
