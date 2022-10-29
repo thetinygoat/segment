@@ -90,8 +90,196 @@ If the server is started successfully you will see a log similar to this in your
 2022-10-29T07:23:05.308471Z  INFO segment::server: server started on port 1698
 ```
 
-#### Client Libraries and Utilities
-Currenly there is a [rust client](https://github.com/segment-dev/segment-rs) in very early stages. It is usable and works well, but not does not have a good DX and is missing several imporant features.
+### List of Commands
+
+#### `CREATE`
+##### Description
+Used to create a new keyspace. By defualt it doesn't take any arguments except the name of the keyspace, but you can specify the evictor you want to use for the keyspace.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace that you want to create.
+
+##### Optional Arguments
+- `EVICTOR` - Indicates the evictor that you want to use for the keyspace. Possible values include `NOP`, `RANDOM` and `LRU`.
+
+##### Optional Flags
+- `IF_NOT_EXISTS` - If a keyspace already exists and you try to create it again the server will throw an error, but if you don't want an error you can pass this flag with the create command.
+
+##### Return Type
+The return type can be a boolean or an error.
+
+##### Examples
+```shell
+CREATE my_keyspace
+```
+
+```shell
+CREATE my_keyspace EVICTOR LRU
+```
+
+```shell
+CREATE my_keyspace EVICTOR LRU IF_NOT_EXISTS
+```
+
+#### `DROP`
+##### Description
+Used to drop a keyspace.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace that you want to drop.
+
+##### Optional Flags
+- `IF_EXISTS` - If a keyspace doesn't already exists and you try to drop it the server will throw an error, but if you don't want an error you can pass this flag with the drop command.
+
+##### Return Type
+The return type can be a boolean or an error.
+
+##### Examples
+```shell
+DROP my_keyspace
+```
+
+```shell
+DROP my_keyspace IF_EXISTS
+```
+
+#### `SET`
+##### Description
+Used to insert a value in the keyspace.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace that you want to create.
+ - `<KEY>` - Key that you want to insert.
+ - `<VALUE>` - Value for the key.
+
+##### Optional Arguments
+- `EXPIRE_AFTER` - Expiry time of the key in milliseconds after which it will expire.
+- `EXPIRE_AT` - Unix timestamp after which the key will expire.
+
+##### Optional Flags
+- `IF_NOT_EXISTS` - If you want to set a key only if it does not already exists.
+- `IF_EXISTS` - If you want to set a key only if it already exists.
+
+##### Return Type
+The return type can be a boolean or an error.
+
+##### Examples
+```shell
+SET my_keyspace my_key my_value
+```
+
+```shell
+SET my_keyspace my_key my_value IF_NOT_EXISTS
+```
+
+```shell
+SET my_keyspace my_key my_value IF_EXISTS
+```
+
+```shell
+SET my_keyspace my_key my_value EXPIRE_AFTER 60000
+```
+
+```shell
+SET my_keyspace my_key my_value EXPIRE_AT 1667041052
+```
+
+#### `GET`
+##### Description
+Used to get a key from the keyspace.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace that you want to get the key from.
+ - `<KEY>` - key that you want to get.
+
+
+##### Return Type
+The return type can be a string, null, or error.
+
+##### Examples
+```shell
+GET my_keyspace my_key
+```
+
+#### `DEL`
+##### Description
+Used to delete a key from the keyspace.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace that you want to create.
+ - `<KEY>` - Name of the keyspace that you want to create.
+
+
+##### Return Type
+The return type can be a boolean or error.
+
+##### Examples
+```shell
+DEL my_keyspace my_key
+```
+
+#### `COUNT`
+##### Description
+Returns the number of keys in a keyspace.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace.
+
+
+##### Return Type
+The return type can be an integer or error.
+
+##### Examples
+```shell
+COUNT my_keyspace
+```
+
+#### `TTL`
+##### Description
+Returns the remaining TTL of the key in milliseconds.
+
+##### Essential Arguments
+ - `<KEYSPACE>` - Name of the keyspace.
+ - `<KEY>` - Name of the key.
+
+
+##### Return Type
+The return type can be an integer or null (if the key doesn't have an expiry or is already expired) or an error.
+
+##### Examples
+```shell
+TTL my_keyspace my_key
+```
+
+#### `PING`
+##### Description
+Used to ping the server.
+
+
+##### Return Type
+The return type is the string `pong`.
+
+##### Examples
+```shell
+PING
+```
+
+#### `KEYSPACES`
+##### Description
+Returns the list of keyspaces.
+
+##### Return Type
+The return type is an array of strings.
+
+##### Examples
+```shell
+KEYSPACES
+```
+
+
+
+### Client Libraries and Utilities
+Currenly there is a [Rust client](https://github.com/segment-dev/segment-rs) in very early stages. It is usable and works well, but not does not have a good DX and is missing several imporant features.
 
 There is also a repo that aims to provide a collection of utilities for the Segment server like a CLI, a banchmarking tool etc. Currently it only contains a CLI which works well and can be used to play around with the server.
 
