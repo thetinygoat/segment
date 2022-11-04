@@ -2,7 +2,6 @@ use atoi::atoi;
 use bytes::Buf;
 use bytes::Bytes;
 use std::io::Cursor;
-use std::num::ParseFloatError;
 use std::str;
 use thiserror::Error;
 
@@ -29,17 +28,11 @@ pub enum Frame {
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ParseFrameError {
-    #[error("incomplete frame")]
+    #[error("failed to parse frame, more data is required")]
     Incomplete,
 
-    #[error("invalid frame format")]
+    #[error("failed to parse frame, invalid frame format")]
     InvalidFormat,
-
-    #[error(transparent)]
-    Utf8Error(#[from] str::Utf8Error),
-
-    #[error(transparent)]
-    ParseFloatError(#[from] ParseFloatError),
 }
 
 pub fn parse(buf: &mut Cursor<&[u8]>) -> Result<Frame, ParseFrameError> {
@@ -152,6 +145,9 @@ fn parse_null(line: &[u8]) -> Result<Frame, ParseFrameError> {
 
 fn parse_map(buf: &mut Cursor<&[u8]>, line: &[u8]) -> Result<Frame, ParseFrameError> {
     let len = atoi::<usize>(line).ok_or(ParseFrameError::InvalidFormat)?;
+    if len % 2 != 0 {
+        return Err(ParseFrameError::InvalidFormat);
+    }
     let mut map = Vec::with_capacity(2 * len);
     for _ in 0..len {
         let key = parse(buf)?;
@@ -164,7 +160,10 @@ fn parse_map(buf: &mut Cursor<&[u8]>, line: &[u8]) -> Result<Frame, ParseFrameEr
 }
 
 fn parse_double(line: &[u8]) -> Result<Frame, ParseFrameError> {
-    let double = str::from_utf8(line)?.parse::<f64>()?;
+    let double = str::from_utf8(line)
+        .map_err(|_| ParseFrameError::InvalidFormat)?
+        .parse::<f64>()
+        .map_err(|_| ParseFrameError::InvalidFormat)?;
     Ok(Frame::Double(double))
 }
 
@@ -199,10 +198,12 @@ mod tests {
         fs::read(path).unwrap()
     }
 
-    fn get_frame_from_file(data: &[u8]) -> Bytes {
-        let header = format!("${}\r\n", data.len());
+    fn get_frame_from_file(data: &[u8], ident: u8) -> Bytes {
         let mut frame = BytesMut::new();
-        frame.put(header.as_bytes());
+        frame.put_u8(ident);
+        frame.put_slice(format!("{}", data.len()).as_bytes());
+        frame.put_u8(b'\r');
+        frame.put_u8(b'\n');
         frame.put(data);
         frame.put_u8(b'\r');
         frame.put_u8(b'\n');
@@ -279,7 +280,7 @@ mod tests {
     #[test]
     fn parse_given_string_with_pdf_data_returns_pdf_data() {
         let file_data = read_file(Path::new("test_data").join("test.pdf"));
-        let frame = get_frame_from_file(file_data.as_slice());
+        let frame = get_frame_from_file(file_data.as_slice(), STRING_IDENT);
         let mut buf = get_cursor_from_bytes(&frame);
         assert_eq!(parse(&mut buf), Ok(Frame::String(Bytes::from(file_data))))
     }
@@ -287,7 +288,7 @@ mod tests {
     #[test]
     fn parse_given_string_with_png_data_returns_png_data() {
         let file_data = read_file(Path::new("test_data").join("test.png"));
-        let frame = get_frame_from_file(file_data.as_slice());
+        let frame = get_frame_from_file(file_data.as_slice(), STRING_IDENT);
         let mut buf = get_cursor_from_bytes(&frame);
         assert_eq!(parse(&mut buf), Ok(Frame::String(Bytes::from(file_data))))
     }
@@ -295,7 +296,7 @@ mod tests {
     #[test]
     fn parse_given_string_with_jpg_data_returns_jpg_data() {
         let file_data = read_file(Path::new("test_data").join("test.jpg"));
-        let frame = get_frame_from_file(file_data.as_slice());
+        let frame = get_frame_from_file(file_data.as_slice(), STRING_IDENT);
         let mut buf = get_cursor_from_bytes(&frame);
         assert_eq!(parse(&mut buf), Ok(Frame::String(Bytes::from(file_data))))
     }
@@ -303,7 +304,7 @@ mod tests {
     #[test]
     fn parse_given_string_with_html_data_returns_html_data() {
         let file_data = read_file(Path::new("test_data").join("test.html"));
-        let frame = get_frame_from_file(file_data.as_slice());
+        let frame = get_frame_from_file(file_data.as_slice(), STRING_IDENT);
         let mut buf = get_cursor_from_bytes(&frame);
         assert_eq!(parse(&mut buf), Ok(Frame::String(Bytes::from(file_data))))
     }
@@ -360,5 +361,187 @@ mod tests {
     fn parse_given_invalid_boolean_returns_invalid_format_error() {
         let mut buf = get_cursor_from_bytes(b"^foo\r\n");
         assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_null_returns_null() {
+        let mut buf = get_cursor_from_bytes(b"-\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Null))
+    }
+
+    #[test]
+    fn parse_given_invalid_null_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"-foo\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_double_with_invalid_decimal_part_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b".20.foo\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_double_with_invalid_integer_part_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b".foo.90\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_double_with_zero_decimal_part_returns_double() {
+        let mut buf = get_cursor_from_bytes(b".10.000\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Double(10.0)))
+    }
+
+    #[test]
+    fn parse_given_double_with_trailing_zeroes_returns_double() {
+        let mut buf = get_cursor_from_bytes(b".10.100\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Double(10.1)))
+    }
+
+    #[test]
+    fn parse_given_double_with_leading_zeroes_returns_double() {
+        let mut buf = get_cursor_from_bytes(b".000010.100\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Double(10.1)))
+    }
+
+    #[test]
+    fn parse_given_invalid_double_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b".abc\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_error_with_no_length_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"!\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_error_with_invalid_length_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"!abc\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_incomplete_error_with_zero_length_returns_incomplete_error() {
+        let mut buf = get_cursor_from_bytes(b"!0\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::Incomplete))
+    }
+
+    #[test]
+    fn parse_given_incomplete_error_with_non_zero_length_returns_incomplete_error() {
+        let mut buf = get_cursor_from_bytes(b"!1\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::Incomplete))
+    }
+
+    #[test]
+    fn parse_given_error_with_zero_length_returns_empty_error_frame() {
+        let mut buf = get_cursor_from_bytes(b"!0\r\n\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from(""))))
+    }
+
+    #[test]
+    fn parse_given_error_with_length_less_than_length_of_data_returns_data_upto_given_length() {
+        let mut buf = get_cursor_from_bytes(b"!1\r\nfoo\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from("f"))))
+    }
+
+    #[test]
+    fn parse_given_error_with_length_greater_than_length_of_data_returns_incomplete_error() {
+        let mut buf = get_cursor_from_bytes(b"!100\r\nfoo\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::Incomplete))
+    }
+
+    #[test]
+    fn parse_given_error_returns_error_frame() {
+        let mut buf = get_cursor_from_bytes(b"!3\r\nfoo\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from("foo"))))
+    }
+
+    #[test]
+    fn parse_given_error_with_delimiter_in_data_returns_error_frame() {
+        let mut buf = get_cursor_from_bytes(b"!5\r\nfoo\r\n\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from("foo\r\n"))))
+    }
+
+    #[test]
+    fn parse_given_error_with_pdf_data_returns_pdf_data() {
+        let file_data = read_file(Path::new("test_data").join("test.pdf"));
+        let frame = get_frame_from_file(file_data.as_slice(), ERROR_IDENT);
+        let mut buf = get_cursor_from_bytes(&frame);
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from(file_data))))
+    }
+
+    #[test]
+    fn parse_given_error_with_png_data_returns_png_data() {
+        let file_data = read_file(Path::new("test_data").join("test.png"));
+        let frame = get_frame_from_file(file_data.as_slice(), ERROR_IDENT);
+        let mut buf = get_cursor_from_bytes(&frame);
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from(file_data))))
+    }
+
+    #[test]
+    fn parse_given_error_with_jpg_data_returns_jpg_data() {
+        let file_data = read_file(Path::new("test_data").join("test.jpg"));
+        let frame = get_frame_from_file(file_data.as_slice(), ERROR_IDENT);
+        let mut buf = get_cursor_from_bytes(&frame);
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from(file_data))))
+    }
+
+    #[test]
+    fn parse_given_error_with_html_data_returns_html_data() {
+        let file_data = read_file(Path::new("test_data").join("test.html"));
+        let frame = get_frame_from_file(file_data.as_slice(), ERROR_IDENT);
+        let mut buf = get_cursor_from_bytes(&frame);
+        assert_eq!(parse(&mut buf), Ok(Frame::Error(Bytes::from(file_data))))
+    }
+
+    #[test]
+    fn parse_given_array_with_no_length_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"*\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_array_with_zero_length_returns_empty_array() {
+        let mut buf = get_cursor_from_bytes(b"*0\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Array(Vec::new())))
+    }
+
+    #[test]
+    fn parse_given_array_with_invalid_length_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"*abc\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_map_with_no_length_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"#\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_map_with_zero_length_returns_empty_map() {
+        let mut buf = get_cursor_from_bytes(b"#0\r\n");
+        assert_eq!(parse(&mut buf), Ok(Frame::Map(Vec::new())))
+    }
+
+    #[test]
+    fn parse_given_map_with_invalid_length_returns_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"#abc\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_map_with_odd_length_return_invalid_format_error() {
+        let mut buf = get_cursor_from_bytes(b"#1\r\n$3\r\nfoo\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
+    }
+
+    #[test]
+    fn parse_given_incomplete_map_return_incomplete_error() {
+        let mut buf = get_cursor_from_bytes(b"#2\r\n$3\r\nfoo\r\n");
+        assert_eq!(parse(&mut buf), Err(ParseFrameError::Incomplete))
     }
 }
