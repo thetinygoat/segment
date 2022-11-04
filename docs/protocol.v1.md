@@ -116,3 +116,16 @@ A map is a hash map, it's similar to an array and is encoded as follows: A `#` c
 // map containing one key-value pair, with key being hello and value being world
 #1\r\n$5\r\nhello\r\n$5\r\nworld\r\n
 ```
+
+## Sending Commands to a Segment Server
+
+Now that you are familiar with the wire protocol, you can use it to write a client to interact with a Segment server.
+
+- A client can send the command to a Segment server as an _Array of Strings_ only. Using any other data type to send the command will result in an error.
+- The server can respond with any of the above data type.
+
+For example, the create command will be encoded as follows:
+
+```shell
+*2\r\n$6\r\nCREATE\r\n$3\r\nfoo\r\n
+```
