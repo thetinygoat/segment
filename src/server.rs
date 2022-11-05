@@ -19,7 +19,7 @@ struct Server {
 }
 
 struct ConnectionHandler {
-    connection: Connection,
+    connection: Connection<TcpStream>,
     done: broadcast::Receiver<()>,
     db: Arc<Db>,
 }
