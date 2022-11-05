@@ -147,7 +147,18 @@ impl Db {
         let handle = self.keyspaces.read();
         let mut keyspaces = Vec::with_capacity(handle.keys().count());
         for key in handle.keys() {
-            keyspaces.push(Frame::String(key.clone()))
+            if let Some(keyspace) = handle.get(key) {
+                let mut map = Vec::with_capacity(2);
+                let name = Frame::String(key.clone());
+                let evictor = Frame::String(Bytes::copy_from_slice(keyspace.evictor().as_bytes()));
+                map.push(Frame::String(Bytes::from_static(b"name")));
+                map.push(name);
+                map.push(Frame::String(Bytes::from_static(b"evictor")));
+                map.push(evictor);
+                keyspaces.push(Frame::Map(map))
+            } else {
+                continue;
+            }
         }
         Ok(Frame::Array(keyspaces))
     }
@@ -450,6 +461,10 @@ impl Keyspace {
             }
         });
     }
+
+    pub fn evictor(&self) -> Evictor {
+        self.evictor
+    }
 }
 
 impl Value {
@@ -475,5 +490,15 @@ impl Value {
 
     pub fn last_accessed(&self) -> Instant {
         self.last_accessed
+    }
+}
+
+impl Evictor {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Evictor::Lru => b"LRU",
+            Evictor::Nop => b"NOP",
+            Evictor::Random => b"RANDOM",
+        }
     }
 }
