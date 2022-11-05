@@ -2,6 +2,7 @@ use crate::frame::{
     self, Frame, ParseFrameError, ARRAY_IDENT, BOOLEAN_IDENT, DOUBLE_IDENT, ERROR_IDENT,
     INTEGER_IDENT, MAP_IDENT, STRING_IDENT,
 };
+use async_recursion::async_recursion;
 use bytes::{Buf, Bytes, BytesMut};
 use std::io::{self, Cursor};
 use thiserror::Error;
@@ -10,7 +11,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 #[derive(Debug)]
 pub struct Connection<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin + Send,
 {
     stream: T,
     buf: BytesMut,
@@ -33,7 +34,7 @@ pub enum ConnectionError {
 
 impl<T> Connection<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin + Send,
 {
     pub fn new(stream: T, buf_size: usize) -> Self {
         Connection {
@@ -70,37 +71,8 @@ where
         }
     }
 
+    #[async_recursion]
     pub async fn write_frame(&mut self, frame: &Frame) -> Result<(), ConnectionError> {
-        match frame {
-            Frame::Array(array) => {
-                self.stream.write_u8(ARRAY_IDENT).await?;
-                self.stream
-                    .write_all(format!("{}\r\n", array.len()).as_bytes())
-                    .await?;
-                for value in array {
-                    self.write_value(value).await?;
-                }
-            }
-            Frame::Map(map) => {
-                if map.len() % 2 != 0 {
-                    return Err(ConnectionError::MalformedFrameForWrite);
-                }
-                self.stream.write_u8(MAP_IDENT).await?;
-                self.stream
-                    .write_all(format!("{}\r\n", map.len() / 2).as_bytes())
-                    .await?;
-                for value in map {
-                    self.write_value(value).await?;
-                }
-            }
-            _ => self.write_value(frame).await?,
-        }
-
-        self.stream.flush().await?;
-        Ok(())
-    }
-
-    async fn write_value(&mut self, frame: &Frame) -> Result<(), ConnectionError> {
         match frame {
             Frame::String(data) => {
                 let len = data.len();
@@ -147,9 +119,30 @@ where
                 self.stream.write_all(data).await?;
                 self.stream.write_all(b"\r\n").await?;
             }
-            _ => unreachable!(),
+            Frame::Array(array) => {
+                self.stream.write_u8(ARRAY_IDENT).await?;
+                self.stream
+                    .write_all(format!("{}\r\n", array.len()).as_bytes())
+                    .await?;
+                for value in array {
+                    self.write_frame(value).await?;
+                }
+            }
+            Frame::Map(map) => {
+                if map.len() % 2 != 0 {
+                    return Err(ConnectionError::MalformedFrameForWrite);
+                }
+                self.stream.write_u8(MAP_IDENT).await?;
+                self.stream
+                    .write_all(format!("{}\r\n", map.len() / 2).as_bytes())
+                    .await?;
+                for value in map {
+                    self.write_frame(value).await?;
+                }
+            }
         }
 
+        self.stream.flush().await?;
         Ok(())
     }
 
@@ -458,10 +451,13 @@ mod tests {
     async fn write_frame_given_malformed_map_returns_malformed_frame_for_write_error() {
         let mock = Builder::new().build();
         let mut connection = Connection::new(mock, 1024);
-        assert!(connection
+        match connection
             .write_frame(&Frame::Map(vec![Frame::String(Bytes::from("foo"))]))
             .await
-            .is_err())
+        {
+            Err(ConnectionError::MalformedFrameForWrite) => {}
+            _ => unreachable!(),
+        }
     }
 
     #[tokio::test]
