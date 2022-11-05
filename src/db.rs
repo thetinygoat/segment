@@ -91,7 +91,7 @@ impl Db {
             Command::Drop(cmd) => self.exec_drop(&cmd),
             Command::Keyspaces => self.exec_keyspaces(),
             Command::Set(cmd) => self.exec_set(&cmd),
-            Command::Ping => Ok(Frame::String(Bytes::from("pong"))),
+            Command::Ping => Ok(Frame::String(Bytes::from_static(b"PONG"))),
             Command::Get(cmd) => self.exec_get(&cmd),
             Command::Del(cmd) => self.exec_del(&cmd),
             Command::Count(cmd) => self.exec_count(&cmd),
