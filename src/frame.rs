@@ -145,9 +145,6 @@ fn parse_null(line: &[u8]) -> Result<Frame, ParseFrameError> {
 
 fn parse_map(buf: &mut Cursor<&[u8]>, line: &[u8]) -> Result<Frame, ParseFrameError> {
     let len = atoi::<usize>(line).ok_or(ParseFrameError::InvalidFormat)?;
-    if len % 2 != 0 {
-        return Err(ParseFrameError::InvalidFormat);
-    }
     let mut map = Vec::with_capacity(2 * len);
     for _ in 0..len {
         let key = parse(buf)?;
@@ -530,12 +527,6 @@ mod tests {
     #[test]
     fn parse_given_map_with_invalid_length_returns_invalid_format_error() {
         let mut buf = get_cursor_from_bytes(b"#abc\r\n");
-        assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
-    }
-
-    #[test]
-    fn parse_given_map_with_odd_length_return_invalid_format_error() {
-        let mut buf = get_cursor_from_bytes(b"#1\r\n$3\r\nfoo\r\n");
         assert_eq!(parse(&mut buf), Err(ParseFrameError::InvalidFormat))
     }
 
