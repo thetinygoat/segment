@@ -28,10 +28,10 @@ pub enum Frame {
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ParseFrameError {
-    #[error("failed to parse frame, more data is required")]
+    #[error("more data is required to parse the frame")]
     Incomplete,
 
-    #[error("failed to parse frame, invalid frame format")]
+    #[error("invalid frame format")]
     InvalidFormat,
 }
 
