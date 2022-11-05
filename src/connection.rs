@@ -441,6 +441,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn write_frame_given_nested_arrays_writes_array_frame() {
+        let mock = Builder::new().write(b"*1\r\n*1\r\n*1\r\n*0\r\n").build();
+        let mut connection = Connection::new(mock, 1024);
+        connection
+            .write_frame(&Frame::Array(vec![Frame::Array(vec![Frame::Array(vec![
+                Frame::Array(vec![]),
+            ])])]))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn write_frame_given_array_with_maps_writes_array_frame() {
+        let mock = Builder::new()
+            .write(b"*1\r\n#1\r\n$3\r\nfoo\r\n$3\r\nbar\r\n")
+            .build();
+        let mut connection = Connection::new(mock, 1024);
+        connection
+            .write_frame(&Frame::Array(vec![Frame::Map(vec![
+                Frame::String(Bytes::from("foo")),
+                Frame::String(Bytes::from("bar")),
+            ])]))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn write_frame_given_empty_map_writes_map_frame() {
         let mock = Builder::new().write(b"#0\r\n").build();
         let mut connection = Connection::new(mock, 1024);
