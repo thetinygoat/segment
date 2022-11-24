@@ -156,12 +156,12 @@ impl Create {
         };
 
         while parser.has_remaining() {
-            let key = parser
+            let token = parser
                 .next_as_string()?
                 .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
                 .to_lowercase();
 
-            if matches!(key.as_str(), "evictor") {
+            if matches!(token.as_str(), "evictor") {
                 let value = parser
                     .next_as_string()?
                     .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
@@ -173,19 +173,42 @@ impl Create {
                     _ => {
                         return Err(ParseCommandError::InvalidArgValue(
                             value,
-                            key,
+                            token,
                             "create".to_string(),
                         ))
                     }
                 }
-            } else if matches!(key.as_str(), "if_not_exists") {
+            } else if matches!(token.as_str(), "if") {
+                let not_token = parser
+                    .next_as_string()?
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
+                    .to_lowercase();
+                let exists_token = parser
+                    .next_as_string()?
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("create".to_string()))?
+                    .to_lowercase();
+
+                if !matches!(not_token.as_str(), "not") {
+                    return Err(ParseCommandError::InvalidArg(
+                        not_token,
+                        "create".to_string(),
+                    ));
+                }
+
+                if !matches!(exists_token.as_str(), "exists") {
+                    return Err(ParseCommandError::InvalidArg(
+                        exists_token,
+                        "create".to_string(),
+                    ));
+                }
+
                 if !command.if_not_exists {
                     command.if_not_exists = true
                 } else {
                     return Err(ParseCommandError::InvalidFormat);
                 }
             } else {
-                return Err(ParseCommandError::InvalidArg(key, "create".to_string()));
+                return Err(ParseCommandError::InvalidArg(token, "create".to_string()));
             }
         }
 
@@ -231,54 +254,88 @@ impl Set {
         }
 
         while parser.has_remaining() {
-            let key = parser
+            let token = parser
                 .next_as_string()?
                 .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
                 .to_lowercase();
 
-            if matches!(key.as_str(), "expire_at") {
-                let value = parser
+            if matches!(token.as_str(), "expire") {
+                let at_or_after_token = parser
                     .next_as_string()?
-                    .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
-                let timestamp = value.parse::<u64>().map_err(|_| {
-                    ParseCommandError::InvalidArgValue(value, key, "set".to_string())
-                })?;
-                match command.expire_at {
-                    Some(_) => return Err(ParseCommandError::InvalidFormat),
-                    None => command.expire_at = Some(timestamp),
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
+                    .to_lowercase();
+                if matches!(at_or_after_token.as_str(), "at") {
+                    let value = parser
+                        .next_as_string()?
+                        .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
+                    let timestamp = value.parse::<u64>().map_err(|_| {
+                        ParseCommandError::InvalidArgValue(value, token, "set".to_string())
+                    })?;
+                    match command.expire_at {
+                        Some(_) => return Err(ParseCommandError::InvalidFormat),
+                        None => command.expire_at = Some(timestamp),
+                    }
+                } else if matches!(at_or_after_token.as_str(), "after") {
+                    let value = parser
+                        .next_as_string()?
+                        .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
+
+                    let millis = value.parse::<u64>().map_err(|_| {
+                        ParseCommandError::InvalidArgValue(value, token, "set".to_string())
+                    })?;
+
+                    let timestamp = SystemTime::now()
+                        .add(Duration::from_millis(millis))
+                        .duration_since(UNIX_EPOCH)?
+                        .as_secs();
+
+                    match command.expire_at {
+                        Some(_) => return Err(ParseCommandError::InvalidFormat),
+                        None => command.expire_at = Some(timestamp),
+                    }
+                } else {
+                    return Err(ParseCommandError::InvalidArg(
+                        at_or_after_token,
+                        "set".to_string(),
+                    ));
                 }
-            } else if matches!(key.as_str(), "expire_after") {
-                let value = parser
+            } else if matches!(token.as_str(), "if") {
+                let not_or_exists_token = parser
                     .next_as_string()?
-                    .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?;
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
+                    .to_lowercase();
 
-                let millis = value.parse::<u64>().map_err(|_| {
-                    ParseCommandError::InvalidArgValue(value, key, "set".to_string())
-                })?;
-
-                let timestamp = SystemTime::now()
-                    .add(Duration::from_millis(millis))
-                    .duration_since(UNIX_EPOCH)?
-                    .as_secs();
-
-                match command.expire_at {
-                    Some(_) => return Err(ParseCommandError::InvalidFormat),
-                    None => command.expire_at = Some(timestamp),
-                }
-            } else if matches!(key.as_str(), "if_not_exists") {
-                if !command.if_not_exists && !command.if_exists {
-                    command.if_not_exists = true
+                if matches!(not_or_exists_token.as_str(), "not") {
+                    let exists_token = parser
+                        .next_as_string()?
+                        .ok_or_else(|| ParseCommandError::WrongArgCount("set".to_string()))?
+                        .to_lowercase();
+                    if matches!(exists_token.as_str(), "exists") {
+                        if !command.if_not_exists && !command.if_exists {
+                            command.if_not_exists = true
+                        } else {
+                            return Err(ParseCommandError::InvalidFormat);
+                        }
+                    } else {
+                        return Err(ParseCommandError::InvalidArg(
+                            exists_token,
+                            "set".to_string(),
+                        ));
+                    }
+                } else if matches!(not_or_exists_token.as_str(), "exists") {
+                    if !command.if_not_exists && !command.if_exists {
+                        command.if_exists = true
+                    } else {
+                        return Err(ParseCommandError::InvalidFormat);
+                    }
                 } else {
-                    return Err(ParseCommandError::InvalidFormat);
-                }
-            } else if matches!(key.as_str(), "if_exists") {
-                if !command.if_not_exists && !command.if_exists {
-                    command.if_exists = true
-                } else {
-                    return Err(ParseCommandError::InvalidFormat);
+                    return Err(ParseCommandError::InvalidArg(
+                        not_or_exists_token,
+                        "set".to_string(),
+                    ));
                 }
             } else {
-                return Err(ParseCommandError::InvalidArg(key, "set".to_string()));
+                return Err(ParseCommandError::InvalidArg(token, "set".to_string()));
             }
         }
 
@@ -387,11 +444,22 @@ impl Drop {
                 .ok_or_else(|| ParseCommandError::WrongArgCount("drop".to_string()))?
                 .to_lowercase();
 
-            if matches!(key.as_str(), "if_exists") {
-                if !command.if_exists {
-                    command.if_exists = true
+            if matches!(key.as_str(), "if") {
+                let exists_token = parser
+                    .next_as_string()?
+                    .ok_or_else(|| ParseCommandError::WrongArgCount("drop".to_string()))?
+                    .to_lowercase();
+                if matches!(exists_token.as_str(), "exists") {
+                    if !command.if_exists {
+                        command.if_exists = true
+                    } else {
+                        return Err(ParseCommandError::InvalidFormat);
+                    }
                 } else {
-                    return Err(ParseCommandError::InvalidFormat);
+                    return Err(ParseCommandError::InvalidArg(
+                        exists_token,
+                        "set".to_string(),
+                    ));
                 }
             } else {
                 return Err(ParseCommandError::InvalidArg(key, "drop".to_string()));
