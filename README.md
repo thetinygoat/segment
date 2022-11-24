@@ -58,7 +58,7 @@ Segment aims to be easy to use and intuitive. One way we are aiming to solve thi
 One more thing that we are doing is using simple commands, for example let's take a look at the command to insert some data in a keyspace.
 
 ```shell
-SET my_keyspace my_key my_value IF_NOT_EXISTS EXPIRE_AFTER 60000
+SET my_keyspace my_key my_value IF NOT EXISTS EXPIRE AFTER 60000
 ```
 
 This commnd tells the segment server to insert the key `my_key` with value `my_value` into the keyspace `my_keyspace` if the key does not exist already and expire the key after 1 minute (60000ms).
@@ -122,7 +122,7 @@ Used to create a new keyspace. By defualt it doesn't take any arguments except t
 
 ##### Optional Flags
 
-- `IF_NOT_EXISTS` - If a keyspace already exists and you try to create it again the server will throw an error, but if you don't want an error you can pass this flag with the create command.
+- `IF NOT EXISTS` - If a keyspace already exists and you try to create it again the server will throw an error, but if you don't want an error you can pass this flag with the create command.
 
 ##### Return Type
 
@@ -139,7 +139,7 @@ CREATE my_keyspace EVICTOR LRU
 ```
 
 ```shell
-CREATE my_keyspace EVICTOR LRU IF_NOT_EXISTS
+CREATE my_keyspace EVICTOR LRU IF NOT_EXISTS
 ```
 
 #### `DROP`
@@ -154,7 +154,7 @@ Used to drop a keyspace.
 
 ##### Optional Flags
 
-- `IF_EXISTS` - If a keyspace doesn't already exists and you try to drop it the server will throw an error, but if you don't want an error you can pass this flag with the drop command.
+- `IF EXISTS` - If a keyspace doesn't already exists and you try to drop it the server will throw an error, but if you don't want an error you can pass this flag with the drop command.
 
 ##### Return Type
 
@@ -167,7 +167,7 @@ DROP my_keyspace
 ```
 
 ```shell
-DROP my_keyspace IF_EXISTS
+DROP my_keyspace IF EXISTS
 ```
 
 #### `SET`
@@ -184,13 +184,13 @@ Used to insert a value in the keyspace.
 
 ##### Optional Arguments
 
-- `EXPIRE_AFTER` - Expiry time of the key in milliseconds after which it will expire.
-- `EXPIRE_AT` - Unix timestamp after which the key will expire.
+- `EXPIRE AFTER` - Expiry time of the key in milliseconds after which it will expire.
+- `EXPIRE AT` - Unix timestamp after which the key will expire.
 
 ##### Optional Flags
 
-- `IF_NOT_EXISTS` - If you want to set a key only if it does not already exists.
-- `IF_EXISTS` - If you want to set a key only if it already exists.
+- `IF NOT_EXISTS` - If you want to set a key only if it does not already exists.
+- `IF EXISTS` - If you want to set a key only if it already exists.
 
 ##### Return Type
 
@@ -203,19 +203,19 @@ SET my_keyspace my_key my_value
 ```
 
 ```shell
-SET my_keyspace my_key my_value IF_NOT_EXISTS
+SET my_keyspace my_key my_value IF NOT_EXISTS
 ```
 
 ```shell
-SET my_keyspace my_key my_value IF_EXISTS
+SET my_keyspace my_key my_value IF EXISTS
 ```
 
 ```shell
-SET my_keyspace my_key my_value EXPIRE_AFTER 60000
+SET my_keyspace my_key my_value EXPIRE AFTER 60000
 ```
 
 ```shell
-SET my_keyspace my_key my_value EXPIRE_AT 1667041052
+SET my_keyspace my_key my_value EXPIRE AT 1667041052
 ```
 
 #### `GET`
