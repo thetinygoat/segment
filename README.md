@@ -139,7 +139,7 @@ CREATE my_keyspace EVICTOR LRU
 ```
 
 ```shell
-CREATE my_keyspace EVICTOR LRU IF NOT_EXISTS
+CREATE my_keyspace EVICTOR LRU IF NOT EXISTS
 ```
 
 #### `DROP`
@@ -189,7 +189,7 @@ Used to insert a value in the keyspace.
 
 ##### Optional Flags
 
-- `IF NOT_EXISTS` - If you want to set a key only if it does not already exists.
+- `IF NOT EXISTS` - If you want to set a key only if it does not already exists.
 - `IF EXISTS` - If you want to set a key only if it already exists.
 
 ##### Return Type
@@ -203,7 +203,7 @@ SET my_keyspace my_key my_value
 ```
 
 ```shell
-SET my_keyspace my_key my_value IF NOT_EXISTS
+SET my_keyspace my_key my_value IF NOT EXISTS
 ```
 
 ```shell
