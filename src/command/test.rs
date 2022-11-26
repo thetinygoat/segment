@@ -1,7 +1,7 @@
 use super::parse;
 use crate::db::Evictor;
 use crate::{
-    command::{Command, Create, Set},
+    command::{Command, Count, Create, Del, Drop, Get, Set, Ttl},
     frame::Frame,
 };
 use bytes::Bytes;
@@ -669,6 +669,182 @@ fn parse_given_set_command_with_if_exists_and_tll_reverse_order_returns_set() {
             if_not_exists: false,
             expire_at: Some(1667041052),
             if_exists: true
+        })
+    );
+}
+
+#[test]
+fn parse_given_get_without_keyspace_returns_error() {
+    let command = vec![get_frame_from_str("get")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_get_without_key_returns_error() {
+    let command = vec![get_frame_from_str("get"), get_frame_from_str("foo")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_get_returns_get() {
+    let command = vec![
+        get_frame_from_str("get"),
+        get_frame_from_str("foo"),
+        get_frame_from_str("bar"),
+    ];
+
+    assert_eq!(
+        parse(Frame::Array(command)).unwrap(),
+        Command::Get(Get {
+            keyspace: Bytes::from("foo"),
+            key: Bytes::from("bar"),
+        })
+    );
+}
+
+#[test]
+fn parse_given_del_without_keyspace_returns_error() {
+    let command = vec![get_frame_from_str("del")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_del_without_key_returns_error() {
+    let command = vec![get_frame_from_str("del"), get_frame_from_str("foo")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_del_returns_del() {
+    let command = vec![
+        get_frame_from_str("del"),
+        get_frame_from_str("foo"),
+        get_frame_from_str("bar"),
+    ];
+
+    assert_eq!(
+        parse(Frame::Array(command)).unwrap(),
+        Command::Del(Del {
+            keyspace: Bytes::from("foo"),
+            key: Bytes::from("bar"),
+        })
+    );
+}
+
+#[test]
+fn parse_given_drop_without_keyspace_returns_error() {
+    let command = vec![get_frame_from_str("drop")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_drop_without_if_exists_returns_drop() {
+    let command = vec![get_frame_from_str("drop"), get_frame_from_str("foo")];
+
+    assert_eq!(
+        parse(Frame::Array(command)).unwrap(),
+        Command::Drop(Drop {
+            keyspace: Bytes::from("foo"),
+            if_exists: false
+        })
+    );
+}
+
+#[test]
+fn parse_given_drop_with_incomplete_if_returns_error() {
+    let command = vec![
+        get_frame_from_str("drop"),
+        get_frame_from_str("foo"),
+        get_frame_from_str("if"),
+    ];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_drop_with_invalid_if_returns_error() {
+    let command = vec![
+        get_frame_from_str("drop"),
+        get_frame_from_str("foo"),
+        get_frame_from_str("if"),
+        get_frame_from_str("not"),
+        get_frame_from_str("exists"),
+    ];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_drop_with_if_exists_returns_drop() {
+    let command = vec![
+        get_frame_from_str("drop"),
+        get_frame_from_str("foo"),
+        get_frame_from_str("if"),
+        get_frame_from_str("exists"),
+    ];
+
+    assert_eq!(
+        parse(Frame::Array(command)).unwrap(),
+        Command::Drop(Drop {
+            keyspace: Bytes::from("foo"),
+            if_exists: true
+        })
+    );
+}
+
+#[test]
+fn parse_given_drop_with_if_exists_reverse_position_returns_error() {
+    let command = vec![
+        get_frame_from_str("drop"),
+        get_frame_from_str("if"),
+        get_frame_from_str("exists"),
+        get_frame_from_str("foo"),
+    ];
+
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_count_without_keyspace_returns_error() {
+    let command = vec![get_frame_from_str("count")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_count_returns_count() {
+    let command = vec![get_frame_from_str("count"), get_frame_from_str("foo")];
+
+    assert_eq!(
+        parse(Frame::Array(command)).unwrap(),
+        Command::Count(Count {
+            keyspace: Bytes::from("foo"),
+        })
+    );
+}
+
+#[test]
+fn parse_given_tll_without_keyspace_returns_error() {
+    let command = vec![get_frame_from_str("ttl")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_ttl_without_key_returns_error() {
+    let command = vec![get_frame_from_str("ttl"), get_frame_from_str("foo")];
+    assert!(parse(Frame::Array(command)).is_err())
+}
+
+#[test]
+fn parse_given_ttl_returns_ttl() {
+    let command = vec![
+        get_frame_from_str("ttl"),
+        get_frame_from_str("foo"),
+        get_frame_from_str("bar"),
+    ];
+
+    assert_eq!(
+        parse(Frame::Array(command)).unwrap(),
+        Command::Ttl(Ttl {
+            keyspace: Bytes::from("foo"),
+            key: Bytes::from("bar"),
         })
     );
 }
