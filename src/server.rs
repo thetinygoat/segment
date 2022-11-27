@@ -5,6 +5,8 @@ use crate::db::Db;
 use anyhow::Result;
 use crossbeam::sync::WaitGroup;
 use std::sync::Arc;
+use std::time::Duration;
+use sysinfo::{Pid, ProcessExt, System, SystemExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::signal;
 use tokio::sync::broadcast;
@@ -16,6 +18,7 @@ struct Server {
     wg: WaitGroup,
     db: Arc<Db>,
     done_tx: broadcast::Sender<()>,
+    evict_tx: broadcast::Sender<()>,
 }
 
 struct ConnectionHandler {
@@ -33,18 +36,54 @@ impl Server {
     pub fn new(ln: TcpListener, cfg: ServerConfig) -> Self {
         let wg = WaitGroup::new();
         let (done_tx, _) = broadcast::channel(1);
-        let db = Db::new(done_tx.subscribe(), wg.clone(), cfg.max_memory());
+        let (evict_tx, _) = broadcast::channel(1);
+        let db = Db::new(done_tx.subscribe(), wg.clone(), evict_tx.subscribe());
         Server {
             ln,
             cfg,
             wg,
             done_tx,
             db: Arc::new(db),
+            evict_tx,
         }
     }
 
     pub async fn start(self) -> Result<()> {
         info!("server started on port {}", self.cfg.port());
+        let monitor_wg = self.wg.clone();
+        let mut monitor_done_rx = self.done_tx.subscribe();
+        let monitor_evict_tx = self.evict_tx.clone();
+        let server_max_memory = self.cfg.max_memory();
+        // FIXME: move this to a separate fn
+        tokio::spawn(async move {
+            let pid = std::process::id() as i32;
+            let mut monitor = System::new();
+            monitor.refresh_process(Pid::from(pid));
+            loop {
+                tokio::select! {
+                    _ = monitor_done_rx.recv() => {
+                        debug!("stopping system monitor, shutdown signal received");
+                        break;
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(1000)) => {
+                        monitor.refresh_process(Pid::from(pid));
+                        if let Some(process) = monitor.process(Pid::from(pid)) {
+                            let memory = process.memory();
+                            if memory >= server_max_memory && server_max_memory > 0 {
+                                debug!("broadcasting evict event, server max memory (bytes) = {}, current memory usage (bytes) = {}", server_max_memory, memory);
+                                if let Err(err) = monitor_evict_tx.send(()) {
+                                    error!("no listeners available for max memory eviction event, error = {:?}", err);
+                                }
+                            }
+                        }else {
+                            error!("no process found with pid {}, max memory evictors will not work", pid);
+                            break;
+                        }
+                    }
+                }
+            }
+            drop(monitor_wg)
+        });
         loop {
             tokio::select! {
                 maybe_connection = self.ln.accept() => {

@@ -5,9 +5,7 @@ use crate::{
 };
 use bytes::Bytes;
 use crossbeam::sync::WaitGroup;
-use libproc::libproc::pid_rusage::{pidrusage, RUsageInfoV2};
 use parking_lot::{Mutex, RwLock};
-use std::process;
 use std::{
     collections::HashMap,
     str::{self, Utf8Error},
@@ -46,7 +44,8 @@ pub struct Keyspace {
     evictor: Evictor,
     wg: WaitGroup,
     done: broadcast::Receiver<()>,
-    server_max_memory: u64,
+    drop: broadcast::Sender<()>,
+    evict: broadcast::Receiver<()>,
 }
 
 #[derive(Debug)]
@@ -54,7 +53,7 @@ pub struct Db {
     keyspaces: RwLock<HashMap<Bytes, Keyspace>>,
     done: broadcast::Receiver<()>,
     wg: WaitGroup,
-    server_max_memory: u64,
+    evict: broadcast::Receiver<()>,
 }
 
 #[derive(Debug, Error)]
@@ -76,12 +75,16 @@ pub enum ExecuteCommandError {
 }
 
 impl Db {
-    pub fn new(done: broadcast::Receiver<()>, wg: WaitGroup, server_max_memory: u64) -> Self {
+    pub fn new(
+        done: broadcast::Receiver<()>,
+        wg: WaitGroup,
+        evict: broadcast::Receiver<()>,
+    ) -> Self {
         Db {
             keyspaces: RwLock::new(HashMap::new()),
             done,
             wg,
-            server_max_memory,
+            evict,
         }
     }
 
@@ -115,13 +118,11 @@ impl Db {
             self.done.resubscribe(),
             self.wg.clone(),
             cmd.evictor(),
-            self.server_max_memory,
+            self.evict.resubscribe(),
         );
-        ks.start_expiring_evictor();
 
-        if self.server_max_memory > 0 {
-            ks.start_max_memory_evictor();
-        }
+        ks.start_expiring_evictor();
+        ks.start_max_memory_evictor();
 
         handle.insert(cmd.keyspace(), ks);
 
@@ -237,15 +238,17 @@ impl Keyspace {
         done: broadcast::Receiver<()>,
         wg: WaitGroup,
         evictor: Evictor,
-        server_max_memory: u64,
+        evict: broadcast::Receiver<()>,
     ) -> Self {
+        let (drop_tx, _) = broadcast::channel(1);
         Keyspace {
             store: Arc::new(Mutex::new(HashMap::new())),
             expiring: Arc::new(Mutex::new(HashMap::new())),
             evictor,
             done,
             wg,
-            server_max_memory,
+            drop: drop_tx,
+            evict,
         }
     }
     pub fn set_if_not_exists(
@@ -344,13 +347,19 @@ impl Keyspace {
         let wg = self.wg.clone();
         let expiring = self.expiring.clone();
         let store = self.store.clone();
+        let mut drop_rx = self.drop.subscribe();
         tokio::spawn(async move {
             debug!("expiring evictor started");
             loop {
                 tokio::select! {
                     _ = done.recv() => {
                         drop(wg);
-                        debug!("shutting down expiring evictor");
+                        debug!("shutting down expiring evictor, shutdown signal received");
+                        break;
+                    }
+                    _ = drop_rx.recv() => {
+                        drop(wg);
+                        debug!("shutting down expiring evictor, keyspace is dropped");
                         break;
                     }
                     _ = time::sleep(Duration::from_millis(500)) => {
@@ -390,32 +399,26 @@ impl Keyspace {
             return;
         }
         let mut done = self.done.resubscribe();
+        let mut drop_rx = self.drop.subscribe();
+        let mut evict_rx = self.evict.resubscribe();
         let wg = self.wg.clone();
         let store = self.store.clone();
         let evictor = self.evictor;
-        let server_max_memory = self.server_max_memory;
         tokio::spawn(async move {
             debug!("max memory evictor started");
             loop {
                 tokio::select! {
                     _ = done.recv() => {
                         drop(wg);
-                        debug!("shutting down max memory evictor");
+                        debug!("shutting down max memory evictor, shutdown signal received");
                         break;
                     }
-                    _ = time::sleep(Duration::from_millis(1000)) => {
-                        let memory_usage = match pidrusage::<RUsageInfoV2>(process::id() as i32) {
-                            Ok(rusage) => rusage.ri_resident_size,
-                            Err(e) => {
-                                error!("{}", e);
-                                break;
-                            }
-                        };
-
-                        if memory_usage < server_max_memory {
-                            continue;
-                        }
-
+                    _ = drop_rx.recv() => {
+                        drop(wg);
+                        debug!("shutting down max memory evictor, keyspace is dropped");
+                        break;
+                    }
+                    _ = evict_rx.recv() => {
                         match evictor {
                             Evictor::Lru => {
                                 let mut handle = store.lock();
