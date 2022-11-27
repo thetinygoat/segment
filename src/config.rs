@@ -1,17 +1,21 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use std::net::{AddrParseError, IpAddr, Ipv4Addr};
 use std::num::ParseIntError;
+use std::str::FromStr;
 use thiserror::Error;
 
 const PORT_LABEL: &str = "port";
 const MAX_MEMORY_LABEL: &str = "max_memory";
 const CONNECTION_BUFFER_SIZE_LABEL: &str = "connection_buffer_size";
+const BIND_LABEL: &str = "bind";
 
 #[derive(Debug)]
 pub struct ServerConfig {
     port: u16,
     max_memory: u64,
     connection_buffer_size: usize,
+    bind: IpAddr,
 }
 
 #[derive(Debug, Error)]
@@ -27,6 +31,9 @@ pub enum ServerConfigError {
 
     #[error(transparent)]
     ParseIntError(#[from] ParseIntError),
+
+    #[error(transparent)]
+    AddrParseError(#[from] AddrParseError),
 }
 
 impl ServerConfig {
@@ -40,6 +47,7 @@ impl ServerConfig {
             port: 1698,
             max_memory: 0,
             connection_buffer_size: 4096,
+            bind: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         };
         for maybe_line in reader.lines() {
             let line = &maybe_line?;
@@ -76,6 +84,10 @@ impl ServerConfig {
                     let connection_buffer_size = tokens[1].parse::<usize>()?;
                     config.connection_buffer_size = connection_buffer_size;
                 }
+                BIND_LABEL => {
+                    let bind = IpAddr::from_str(tokens[1])?;
+                    config.bind = bind
+                }
                 _ => {
                     return Err(ServerConfigError::UnknownDirective(
                         tokens[0].to_string(),
@@ -98,5 +110,9 @@ impl ServerConfig {
 
     pub fn connection_buffer_size(&self) -> usize {
         self.connection_buffer_size
+    }
+
+    pub fn bind(&self) -> String {
+        self.bind.to_string()
     }
 }

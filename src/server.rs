@@ -49,7 +49,11 @@ impl Server {
     }
 
     pub async fn start(self) -> Result<()> {
-        info!("server started on port {}", self.cfg.port());
+        info!(
+            "server started on port {}:{}",
+            self.cfg.bind(),
+            self.cfg.port()
+        );
         let monitor_wg = self.wg.clone();
         let mut monitor_done_rx = self.done_tx.subscribe();
         let monitor_evict_tx = self.evict_tx.clone();

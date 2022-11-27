@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     let subscriber = tracing_subscriber::fmt().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
     let cfg = ServerConfig::load_from_disk(&args.config)?;
-    let ln = TcpListener::bind(format!("0.0.0.0:{}", cfg.port())).await?;
+    let ln = TcpListener::bind(format!("{}:{}", cfg.bind(), cfg.port())).await?;
     server::start(ln, cfg).await?;
     Ok(())
 }
