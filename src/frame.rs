@@ -179,21 +179,6 @@ fn parse_error(buf: &mut Cursor<&[u8]>, line: &[u8]) -> Result<Frame, ParseFrame
     Ok(Frame::Error(data))
 }
 
-impl Frame {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Frame::Array(_) => "array",
-            Frame::Boolean(_) => "boolean",
-            Frame::Double(_) => "double",
-            Frame::Error(_) => "error",
-            Frame::Integer(_) => "integer",
-            Frame::Map(_) => "map",
-            Frame::Null => "null",
-            Frame::String(_) => "string",
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
