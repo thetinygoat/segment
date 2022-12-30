@@ -12,10 +12,6 @@ Segment is a _simple_ and _fast_ in-memory key-value database written in Rust.
 - Keys can be separated into multiple dynamic keyspaces.
 - Keyspace level configuration.
 
-### Status
-
-Segment is under heavy development and is in pre-alpha stages.
-
 ### Why Segment?
 
 Segment's goal to is to provide a simpler and more intuitive in-memory key-value solution. It has certain features that other solutions don't. Let's go over them one by one.
@@ -75,8 +71,6 @@ If you are not familiar with redis you will not understand what is happeining he
 
 ### Installation
 
-> Currently Segment is only tested on macOS (because that's what I have access to), but it should not be a problem to run it on linux. If you come across any errors during installation please feel free to open an issue.
-
 Segment is built using Rust, so you will need rust and it's toolchain installed on your system. To install rust you can follow the steps [here](https://rustup.rs/).
 
 After installing you can follow the steps below to build and run segment from source.
@@ -103,6 +97,11 @@ If the server is started successfully you will see a log similar to this in your
 ```shell
 2022-10-29T07:23:05.308471Z  INFO segment::server: server started on port 1698
 ```
+
+### Client Libraries
+
+- [Node.js](https://github.com/segment-dev/segment-node)
+- [Rust (Alpha)](https://github.com/segment-dev/segment-rs)
 
 ### List of Commands
 
@@ -332,15 +331,3 @@ The return type is an array of strings.
 ```shell
 KEYSPACES
 ```
-
-### Client Libraries and Utilities
-
-Currenly there is a [Rust client](https://github.com/segment-dev/segment-rs) in very early stages. It is usable and works well, but not does not have a good DX and is missing several imporant features.
-
-There is also a [repo](https://github.com/segment-dev/segment-utils) that aims to provide a collection of utilities for the Segment server like a CLI, a banchmarking tool etc. Currently it only contains a CLI which works well and can be used to play around with the server.
-
-### Roadmap
-
-The near term roadmap for Segment is to have tests in place (both unit and integration) so that it can be made produciton ready.
-
-In the longer term, I would want to add some kind of persistance, and maybe make the server distributed :)
