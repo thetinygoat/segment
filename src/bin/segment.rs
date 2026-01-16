@@ -1,4 +1,7 @@
+use segment::server::Server;
+
 #[tokio::main]
 async fn main() {
-    segment::run().await;
+    let server = Server::new();
+    server.run().await;
 }

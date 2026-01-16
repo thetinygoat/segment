@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use crate::command::Command;
+use crate::db::Db;
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use redis_protocol::resp2::encode::extend_encode;
@@ -6,22 +9,34 @@ use redis_protocol::resp2::{decode::decode_bytes_mut, types::BytesFrame};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-pub async fn run() {
-    let listener = TcpListener::bind("127.0.0.1:1698").await.unwrap();
+pub struct Server {
+    db: Arc<Db>,
+}
 
-    loop {
-        let (stream, _) = listener.accept().await.unwrap();
+impl Server {
+    pub fn new() -> Self {
+        Server {
+            db: Arc::new(Db::new()),
+        }
+    }
 
-        tokio::spawn(async move {
-            match handle_connection(stream).await {
-                Err(e) => eprintln!("{}", e),
-                _ => return,
-            }
-        });
+    pub async fn run(&self) {
+        let listener = TcpListener::bind("127.0.0.1:1698").await.unwrap();
+
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let db = self.db.clone();
+            tokio::spawn(async move {
+                match handle_connection(db, stream).await {
+                    Err(e) => eprintln!("{}", e),
+                    _ => return,
+                }
+            });
+        }
     }
 }
 
-async fn handle_connection(mut stream: TcpStream) -> Result<()> {
+async fn handle_connection(db: Arc<Db>, mut stream: TcpStream) -> Result<()> {
     let mut buf = BytesMut::with_capacity(4096);
     let mut out = BytesMut::with_capacity(4096);
     loop {
