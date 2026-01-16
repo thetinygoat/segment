@@ -1,6 +1,8 @@
-use anyhow::bail;
+use anyhow::{bail, Ok, Result};
 use bytes::Bytes;
 use redis_protocol::resp2::types::BytesFrame;
+
+use crate::{db::Db, keyspace::Value};
 
 #[derive(Debug)]
 pub enum Command {
@@ -63,5 +65,40 @@ fn extract_bulk(iter: &mut impl Iterator<Item = BytesFrame>, name: &str) -> anyh
         Some(BytesFrame::BulkString(b)) => Ok(b),
         Some(_) => bail!("expected bulk string for {}", name),
         None => bail!("missing argument: {}", name),
+    }
+}
+
+impl Command {
+    pub fn execute(self, db: &Db) -> Result<Option<Bytes>> {
+        match self {
+            Command::Set {
+                key,
+                keyspace,
+                value,
+            } => {
+                db.with_keyspace_mut(&keyspace, |ks| {
+                    ks.set(key, value);
+                });
+                Ok(Some(Bytes::from("OK")))
+            }
+            Command::Get { key, keyspace } => {
+                let result = db.with_keyspace(&keyspace, |ks| {
+                    ks.get(&key).map(|entry| match entry.value() {
+                        Value::Bytes(bytes) => bytes.clone(),
+                        Value::Integer(i) => Bytes::from(i.to_string()),
+                        Value::Float(f) => Bytes::from(f.to_string()),
+                    })
+                });
+                Ok(result.flatten())
+            }
+            Command::Del { key, keyspace } => {
+                let deleted = db.with_keyspace_mut(&keyspace, |ks| ks.del(&key));
+                if let Some(deleted) = deleted {
+                    return Ok(Some(Bytes::from(if deleted { "1" } else { "0" })));
+                }
+
+                Ok(Some(Bytes::from("0")))
+            }
+        }
     }
 }
