@@ -1,6 +1,4 @@
 mod command;
-pub mod config;
-mod connection;
-mod db;
-mod frame;
-pub mod server;
+mod server;
+
+pub use server::run;
