@@ -15,6 +15,7 @@ pub struct Entry {
 pub struct Keyspace {
     store: HashMap<Bytes, Entry>,
     mem_size: usize,
+    options: HashMap<Bytes, Bytes>,
 }
 
 impl Keyspace {
@@ -22,6 +23,15 @@ impl Keyspace {
         Keyspace {
             store: HashMap::with_capacity(4096),
             mem_size: 0,
+            options: HashMap::new(),
+        }
+    }
+
+    pub fn with_options(options: HashMap<Bytes, Bytes>) -> Self {
+        Keyspace {
+            store: HashMap::with_capacity(4096),
+            mem_size: 0,
+            options,
         }
     }
 
@@ -41,6 +51,10 @@ impl Keyspace {
 
     pub fn del(&mut self, key: &Bytes) -> bool {
         self.store.remove(key).is_some()
+    }
+
+    pub fn apply_options(&mut self, options: HashMap<Bytes, Bytes>) {
+        self.options.extend(options);
     }
 }
 

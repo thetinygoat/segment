@@ -62,13 +62,8 @@ async fn handle_connection(db: Arc<Db>, mut stream: TcpStream) -> Result<()> {
             };
 
             match command.execute(&db) {
-                Ok(response) => {
-                    if let Some(data) = response {
-                        let frame = BytesFrame::BulkString(data);
-                        write_response(&mut stream, &mut out, frame).await?;
-                    } else {
-                        write_response(&mut stream, &mut out, BytesFrame::Null).await?;
-                    }
+                Ok(frame) => {
+                    write_response(&mut stream, &mut out, frame).await?;
                 }
                 Err(e) => {
                     let error = BytesFrame::Error(e.to_string().into());
