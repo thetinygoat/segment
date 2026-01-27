@@ -13,3 +13,4 @@ tokio = { version = "1", features = [
 redis-protocol = { version = "6.0.0", features = ["bytes"] }
 bytes = "1.11.0"
 anyhow = "1.0"
+clap = { version = "4.5.55", features = ["derive"] }

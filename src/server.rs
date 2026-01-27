@@ -10,18 +10,24 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 pub struct Server {
+    bind: String,
+    port: String,
     db: Arc<Db>,
 }
 
 impl Server {
-    pub fn new() -> Self {
+    pub fn new(bind: String, port: String) -> Self {
         Server {
+            bind,
+            port,
             db: Arc::new(Db::new()),
         }
     }
 
     pub async fn run(&self) {
-        let listener = TcpListener::bind("127.0.0.1:1698").await.unwrap();
+        let listener = TcpListener::bind(format!("{}:{}", self.bind, self.port))
+            .await
+            .unwrap();
 
         loop {
             let (stream, _) = listener.accept().await.unwrap();
