@@ -1,3 +1,9 @@
 /target
 /Cargo.lock
 .DS_Store
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
